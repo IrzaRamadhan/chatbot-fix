@@ -250,6 +250,34 @@ module.exports = client = async (client, m, chatUpdate, store) => {
       isGroupOwner
     };
 
+    const session = require('./System/lib/session');
+
+    // Check for active session
+    const userState = session.get(sender); // Use full JID to match session.add
+    console.log(`[DEBUG] Session check for ${sender}:`, userState ? "FOUND" : "NONE");
+    if (userState) {
+      const handlerPlugin = plugins.find(p => p.command.includes(userState.handler + '_start')); // trick to find plugin file? No, better use require
+      // Better: dynamically require the file based on handler name if possible, OR
+      // Since we know 'ongkir' is the handler, let's just specific check for now or safer:
+      // We will loop plugins and check if they have a 'handleInput' and if the command matches the handler?
+      // Actually, easiest way: Just require the file directly if we follow convention.
+      // But plugins are already loaded in `plugins` array.
+
+      // Let's iterate plugins to find one that handles this state
+      // We can add a property to plugin `handlerName`?
+      // Or just hardcode for ongkir for now since we haven't standardized 'handler' property in all plugins.
+
+      if (userState.handler === 'ongkir') {
+        try {
+          const ongkirPlugin = require('./command/ongkir');
+          if (ongkirPlugin.handleInput) {
+            await ongkirPlugin.handleInput(m, plug, userState);
+            return; // Stop processing normal commands
+          }
+        } catch (e) { console.error('Session handler error', e); }
+      }
+    }
+
     for (let plugin of plugins) {
       if (plugin.command.find(e => e == command.toLowerCase())) {
         if (plugin.isBot && !isBot) {

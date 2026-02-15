@@ -34,9 +34,44 @@ ${product.DescProd || "Tidak ada deskripsi."}
 _Tertarik? Silakan hubungi admin untuk pemesanan!_
         `.trim();
 
-        // If you had an image URL column, you'd use client.sendMessage with image: { url: ... }
-        // For now, text reply
-        await reply(caption);
+        const { proto, generateWAMessageFromContent } = require("baileys");
+
+        const msg = generateWAMessageFromContent(m.chat, {
+            viewOnceMessage: {
+                message: {
+                    messageContextInfo: {
+                        deviceListMetadata: {},
+                        deviceListMetadataVersion: 2
+                    },
+                    interactiveMessage: proto.Message.InteractiveMessage.create({
+                        body: proto.Message.InteractiveMessage.Body.create({
+                            text: caption // Use the caption we built
+                        }),
+                        footer: proto.Message.InteractiveMessage.Footer.create({
+                            text: "© Amanin Guys Bot"
+                        }),
+                        header: proto.Message.InteractiveMessage.Header.create({
+                            title: "Detail Produk",
+                            subtitle: product.NameProd,
+                            hasMediaAttachment: false
+                        }),
+                        nativeFlowMessage: proto.Message.InteractiveMessage.NativeFlowMessage.create({
+                            buttons: [
+                                {
+                                    name: "quick_reply",
+                                    buttonParamsJson: JSON.stringify({
+                                        display_text: "🚚 Cek Ongkir",
+                                        id: `.ongkir_start ${product.IDprod}`
+                                    })
+                                }
+                            ]
+                        })
+                    })
+                }
+            }
+        }, { userJid: client.user.id, quoted: m });
+
+        await client.relayMessage(m.chat, msg.message, { messageId: msg.key.id });
 
     } catch (error) {
         console.error("Error sending product detail:", error);
