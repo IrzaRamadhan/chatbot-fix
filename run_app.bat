@@ -1,0 +1,6 @@
+@echo off
+echo Starting Amanin Guys Chatbot Web Application...
+echo.
+echo Launching services (Laravel + React Admin + Bot Server)...
+npm run start
+pause
