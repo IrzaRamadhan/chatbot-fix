@@ -29,6 +29,7 @@ module.exports = client = async (client, m, chatUpdate, store) => {
                         m.mtype === "messageContextInfo" ? m.message.buttonsResponseMessage?.selectedButtonId ||
                           m.message.listResponseMessage?.singleSelectReply.selectedRowId || m.text : ""
     );
+    m.body = body; // Attach parsed body to message object for plugins
 
     const sender = m.key.fromMe ? client.user.id.split(":")[0] + "@s.whatsapp.net" ||
       client.user.id : m.key.participant || m.key.remoteJid;
@@ -253,6 +254,11 @@ module.exports = client = async (client, m, chatUpdate, store) => {
     const session = require('./System/lib/session');
 
     // Check for active session
+    // Allow users to force reset session with "halo"
+    if (command === 'halo') {
+      session.delete(sender);
+    }
+
     const userState = session.get(sender); // Use full JID to match session.add
     console.log(`[DEBUG] Session check for ${sender}:`, userState ? "FOUND" : "NONE");
     if (userState) {
