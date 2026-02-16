@@ -56,20 +56,37 @@ module.exports = client = async (client, m, chatUpdate, store) => {
       userSessions[chatId] = {
         followUp: setTimeout(async () => {
           try {
-            await client.sendMessage(chatId, { text: "Halo kak, masih ada yang bisa dibantu?" });
+            const userSession = session.get(senderNumber + '@s.whatsapp.net'); // Helper handles jid normalization usually, but let's be safe
+            // Actually session.get uses keys as they were added. In V10 we used 'sender' (full jid).
+            // Let's use 'sender' variable which is defined in scope? 
+            // Wait, sender is defined inside the main function, but this timeout callback closes over it?
+            // Yes, 'sender' is available in scope.
 
-            // Start Closing Timer (1 min after follow-up)
+            let msg = "gimana nih kak, ada lagi ga?"; // Default message
+
+            const currentSession = session.get(sender);
+            if (currentSession && currentSession.handler === 'ongkir') {
+              const stage = currentSession.data.stage;
+              if (stage === 'ask_quantity') msg = "Kak, jadi pesan berapa pcs nih? 😊";
+              else if (stage === 'ask_address') msg = "Kak, alamatnya belum dikirim ya? Ditunggu biar bisa dicek ongkirnya. 🚚";
+              else if (stage === 'select_courier') msg = "Kak, kurirnya belum dipilih nih. Mau pakai yang mana? 📦";
+              else if (stage === 'review_order') msg = "Kak, pesanan sudah siap diproses. Jangan lupa selesaikan pembayaran ya! 💸";
+            }
+
+            await client.sendMessage(chatId, { text: msg });
+
+            // Start Closing Timer (5 min after follow-up)
             userSessions[chatId].closing = setTimeout(async () => {
               try {
                 await client.sendMessage(chatId, { text: "Terima kasih, selamat beraktifitas" });
                 delete userSessions[chatId];
+                session.delete(sender); // Also clear the functional session
               } catch (e) {
-                // Ignore connection closed errors (harmless cleanup)
                 if (e?.output?.statusCode !== 428 && e?.message !== 'Connection Closed') {
                   console.error("Error sending closing:", e);
                 }
               }
-            }, 60000);
+            }, 300000);
 
           } catch (e) {
             // Ignore connection closed errors (harmless cleanup)
@@ -77,9 +94,10 @@ module.exports = client = async (client, m, chatUpdate, store) => {
               console.error("Error sending follow-up:", e);
             }
           }
-        }, 60000) // 1 min inactivity
+        }, 300000) // 5 min inactivity
       };
     }
+    // --------------------------
     // --------------------------
     const botNumber = await client.decodeJid(client.user.id);
     const kontributor = JSON.parse(fs.readFileSync(path.resolve(__dirname, './System/lib/database/owner.json'), 'utf8'));
