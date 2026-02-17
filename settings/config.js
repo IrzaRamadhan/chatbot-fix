@@ -1,10 +1,10 @@
 const fs = require('fs')
 
 const config = {
-    owner: "6285124153817",
+    owner: "6287728892890",
     botNumber: "6285124153817",
     setPair: "TECHNIFY",
-    thumbUrl: "https://files.catbox.moe/x1tbg9.png",
+    thumbUrl: "https://files.catbox.moe/9gbo27.jpg",
     session: "Technifysessions",
     status: {
         public: true,

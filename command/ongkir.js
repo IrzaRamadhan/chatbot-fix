@@ -12,10 +12,22 @@ module.exports = async (m, { reply, args }) => {
     const productId = args[0];
     if (!productId) return reply("Product ID missing.");
 
-    // Start session with ask_quantity
-    session.add(m.sender, 'ongkir', { productId, stage: 'ask_quantity' });
+    // Start session directly with parse_form
+    session.add(m.sender, 'ongkir', { productId, stage: 'parse_form' });
 
-    await reply("🔢 *Jumlah Pesanan*\n\nMau pesan berapa pcs?\n_Kirim angkanya saja, misal: 1_");
+    const formTemplate =
+        `📝 *Formulir Pemesanan*
+Silakan Salin & Isi data berikut (Jangan ubah format):
+
+Jumlah Pesanan (Angka): 
+Nama Penerima: 
+No HP: 
+Alamat Lengkap: 
+Kecamatan: 
+Kota: 
+Kode Pos: `;
+
+    await reply(formTemplate);
 };
 
 // Handler for user input
@@ -24,38 +36,21 @@ module.exports.handleInput = async (m, { client, reply, fetchJson }, userState) 
         const body = m.body || m.text || "";
         const isImage = m.mtype === 'imageMessage';
 
-        // ----- STAGE 1: ASK QUANTITY -----
-        if (userState.data.stage === 'ask_quantity') {
-            const qty = parseInt(body);
-            if (isNaN(qty) || qty < 1) {
-                return reply("⚠️ Mohon masukkan angka yang valid (minimal 1).");
-            }
-
-            userState.data.quantity = qty;
-            userState.data.stage = 'parse_form';
-
-            const formTemplate =
-                `📝 *Data Pengiriman*
-Silakan Salin & Isi data berikut (Jangan ubah format):
-
-Nama Penerima: 
-No HP: 
-Alamat Lengkap: 
-Kecamatan: 
-Kota: 
-Kode Pos: `;
-
-            await reply(`✅ Oke, *${qty} pcs*.\n\n` + formTemplate);
-        }
-
-        // ----- STAGE 2: PARSE FORM -----
-        else if (userState.data.stage === 'parse_form') {
+        // ----- STAGE 1: PARSE FORM (Combined) -----
+        if (userState.data.stage === 'parse_form') {
             const formData = parseForm(body);
 
             // Validation
-            if (!formData.name || !formData.phone || !formData.address || !formData.district || !formData.city) {
-                return reply("⚠️ Data tidak lengkap. Mohon isi semua field (Nama, No HP, Alamat, Kecamatan, Kota).\n\nSilakan kirim ulang formnya.");
+            if (!formData.name || !formData.phone || !formData.address || !formData.district || !formData.city || !formData.quantity) {
+                // Check if it's just a number (fallback for old flow users?) 
+                // No, strict form.
+                return reply("⚠️ Data tidak lengkap. Pastikan *Jumlah Pesanan*, Nama, No HP, Alamat, Kecamatan, dan Kota terisi.\n\nSilakan kirim ulang formnya.");
             }
+
+            const qty = parseInt(formData.quantity);
+            if (isNaN(qty) || qty < 1) return reply("⚠️ Jumlah pesanan harus angka valid (minimal 1).");
+
+            userState.data.quantity = qty;
 
             await reply("🔍 Sedang mencari lokasi dan menghitung ongkir...");
 
@@ -123,12 +118,13 @@ Kode Pos: `;
             userState.data.totalWeight = totalWeight;
             userState.data.items = items;
             userState.data.stage = 'select_courier';
+            session.add(m.sender, 'ongkir', userState.data); // SAVE STATE
 
             // Send Courier List
             await sendCourierList(client, m, sortedRates, product.NameProd, totalWeight, userState.data.areaName);
         }
 
-        // ----- STAGE 3: SELECT COURIER -----
+        // ----- STAGE 2: SELECT COURIER -----
         else if (userState.data.stage === 'select_courier') {
             if (!body.startsWith('shipping_select_')) return;
 
@@ -139,6 +135,7 @@ Kode Pos: `;
 
             userState.data.selectedRate = rates[index];
             userState.data.stage = 'review_order';
+            session.add(m.sender, 'ongkir', userState.data); // SAVE STATE
 
             await sendOrderReview(client, m, userState.data);
         }
@@ -345,7 +342,8 @@ function parseForm(text) {
         if (parts.length < 2) return;
         const value = parts.slice(1).join(':').trim();
 
-        if (lower.includes('nama')) data.name = value;
+        if (lower.includes('jumlah')) data.quantity = value.replace(/[^0-9]/g, ''); // Extract number only
+        else if (lower.includes('nama')) data.name = value;
         else if (lower.includes('hp')) data.phone = value;
         else if (lower.includes('alamat')) data.address = value;
         else if (lower.includes('kecamatan')) data.district = value;

@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import ConfigManagement from './pages/ConfigManagement'
 import ProductManagement from './pages/ProductManagement'
+import OrderManagement from './pages/OrderManagement'
 
 function App() {
   return (
@@ -33,6 +34,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <ProductManagement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/orders"
+            element={
+              <ProtectedRoute>
+                <OrderManagement />
               </ProtectedRoute>
             }
           />

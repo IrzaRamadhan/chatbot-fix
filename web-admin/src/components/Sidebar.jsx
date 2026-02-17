@@ -40,6 +40,10 @@ export default function Sidebar() {
                     <span className="icon">📦</span>
                     Produk
                 </Link>
+                <Link to="/orders" className={`nav-link ${isActive('/orders')}`}>
+                    <span className="icon">🛍️</span>
+                    Order
+                </Link>
             </nav>
 
             <div className="sidebar-footer">

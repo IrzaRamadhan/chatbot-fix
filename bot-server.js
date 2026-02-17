@@ -23,6 +23,9 @@ app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
     next();
 });
 
@@ -141,6 +144,197 @@ app.get('/api/session', (req, res) => {
     try {
         const session = getSession();
         res.json({ success: true, data: session });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// API: Get Store Config
+app.get('/api/store-config', (req, res) => {
+    try {
+        const storeConfigPath = path.join(__dirname, 'System/lib/database', 'store.json');
+        if (fs.existsSync(storeConfigPath)) {
+            const config = JSON.parse(fs.readFileSync(storeConfigPath, 'utf8'));
+            res.json({ success: true, data: config });
+        } else {
+            res.json({ success: false, message: 'Store config not found' });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// API: Update Store Config
+app.post('/api/store-config', (req, res) => {
+    try {
+        const storeConfigPath = path.join(__dirname, 'System/lib/database', 'store.json');
+        const newConfig = req.body;
+
+        fs.writeFileSync(storeConfigPath, JSON.stringify(newConfig, null, 2));
+
+        // Reload in Biteship (if possible, or just require again)
+        const biteship = require('./System/lib/biteship');
+        if (biteship.reloadStoreConfig) {
+            biteship.reloadStoreConfig();
+        }
+
+        res.json({ success: true, message: 'Store config updated' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// API: Get Biteship Pickup Locations
+app.get('/api/biteship/pickup-locations', async (req, res) => {
+    try {
+        const biteship = require('./System/lib/biteship');
+        const locations = await biteship.getPickupLocations();
+        res.json({ success: true, data: locations });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// API: Search Biteship Area
+app.get('/api/biteship/area', async (req, res) => {
+    try {
+        const { query } = req.query;
+        if (!query) {
+            return res.status(400).json({ success: false, error: 'Query required' });
+        }
+
+        const biteship = require('./System/lib/biteship');
+        const areas = await biteship.searchArea(query);
+        res.json({ success: true, data: areas });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// API: Smart Location Search (Nominatim + Biteship)
+app.get('/api/location-search', async (req, res) => {
+    try {
+        const { query } = req.query;
+        if (!query) return res.status(400).json({ success: false, error: 'Query required' });
+
+        const axios = require('axios');
+        const biteship = require('./System/lib/biteship');
+
+        // 1. Search Nominatim
+        // We must provide a User-Agent to comply with Nominatim Usage Policy
+        const nomRes = await axios.get(`https://nominatim.openstreetmap.org/search`, {
+            params: {
+                format: 'json',
+                q: query,
+                addressdetails: 1,
+                limit: 1
+            },
+            headers: {
+                'User-Agent': 'AmaninGuysBot/1.0 (admin@amaninguys.com)'
+            }
+        });
+
+        const nomData = nomRes.data;
+        let result = {
+            latitude: null,
+            longitude: null,
+            address_components: null,
+            areas: []
+        };
+
+        let biteshipQuery = query; // Default fallback
+
+        if (nomData && nomData.length > 0) {
+            const bestMatch = nomData[0];
+            result.latitude = parseFloat(bestMatch.lat);
+            result.longitude = parseFloat(bestMatch.lon);
+            result.address_components = bestMatch.address;
+
+            // Construct smarter Biteship Query
+            if (bestMatch.address) {
+                const addr = bestMatch.address;
+                // Priority: Kecamatan (suburb/village/town) + City
+                const district = addr.suburb || addr.village || addr.town || '';
+                const city = addr.city || addr.municipality || addr.county || '';
+
+                if (district && city) {
+                    biteshipQuery = `${district}, ${city}`;
+                } else if (city) {
+                    biteshipQuery = city;
+                }
+            }
+        }
+
+        // 2. Search Biteship with refined query
+        const areas = await biteship.searchArea(biteshipQuery);
+        result.areas = areas;
+        result.biteship_query = biteshipQuery;
+
+        res.json({ success: true, data: result });
+
+    } catch (error) {
+        console.error('Location search error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// API: Get Address Book
+app.get('/api/address-book', (req, res) => {
+    try {
+        const addressBookPath = path.join(__dirname, 'System/lib/database', 'address_book.json');
+        if (fs.existsSync(addressBookPath)) {
+            const addressBook = JSON.parse(fs.readFileSync(addressBookPath, 'utf8'));
+            res.json({ success: true, data: addressBook });
+        } else {
+            res.json({ success: true, data: [] });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// API: Add/Update Address Book Item
+app.post('/api/address-book', (req, res) => {
+    try {
+        const addressBookPath = path.join(__dirname, 'System/lib/database', 'address_book.json');
+        let addressBook = [];
+        if (fs.existsSync(addressBookPath)) {
+            addressBook = JSON.parse(fs.readFileSync(addressBookPath, 'utf8'));
+        }
+
+        const newAddress = req.body;
+        if (!newAddress.id) {
+            newAddress.id = Date.now().toString();
+        }
+
+        const existingIndex = addressBook.findIndex(a => a.id === newAddress.id);
+        if (existingIndex >= 0) {
+            addressBook[existingIndex] = newAddress;
+        } else {
+            addressBook.push(newAddress);
+        }
+
+        fs.writeFileSync(addressBookPath, JSON.stringify(addressBook, null, 2));
+        res.json({ success: true, message: 'Address saved', data: newAddress });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// API: Delete Address Book Item
+app.delete('/api/address-book/:id', (req, res) => {
+    try {
+        const addressBookPath = path.join(__dirname, 'System/lib/database', 'address_book.json');
+        if (!fs.existsSync(addressBookPath)) {
+            return res.status(404).json({ success: false, error: 'Address book not found' });
+        }
+
+        let addressBook = JSON.parse(fs.readFileSync(addressBookPath, 'utf8'));
+        const id = req.params.id;
+        addressBook = addressBook.filter(a => a.id !== id);
+
+        fs.writeFileSync(addressBookPath, JSON.stringify(addressBook, null, 2));
+        res.json({ success: true, message: 'Address deleted' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

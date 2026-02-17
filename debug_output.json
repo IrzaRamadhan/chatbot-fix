@@ -1,0 +1,22 @@
+[
+  {
+    "id": "6991d0b1301d40065dd7017e",
+    "name": "Irza Ramadhan",
+    "address": "Jl. Ketintang Madya No.63, Ketintang, Kec. Gayungan, Surabaya, Jawa Timur 60231",
+    "note": null,
+    "coordinate": {
+      "latitude": -7.3125247650057865,
+      "longitude": 112.72394970059395
+    },
+    "postal_code": 60231,
+    "contact_name": "Irza Ramadhan",
+    "contact_phone": "087728892890",
+    "connected_users": [],
+    "owned": true,
+    "status": "active",
+    "stores": [],
+    "created_at": "2026-02-15T13:57:05.445Z",
+    "updated_at": "2026-02-17T10:55:14.852Z",
+    "type": "origin"
+  }
+]

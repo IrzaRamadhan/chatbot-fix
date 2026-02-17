@@ -163,8 +163,9 @@ module.exports = client = async (client, m, chatUpdate, store) => {
     // --------------------------
     // --------------------------
     const botNumber = await client.decodeJid(client.user.id);
-    const kontributor = JSON.parse(fs.readFileSync(path.resolve(__dirname, './System/lib/database/owner.json'), 'utf8'));
-    const isOwner = [botNumber, ...kontributor].map(v => v.replace(/[^0-9]/g, "") + "@s.whatsapp.net").includes(m.sender);
+    // Use config.owner from settings/config.js which is updated by Web Admin
+    const ownerNumber = config.owner;
+    const isOwner = [botNumber, ownerNumber].map(v => v.replace(/[^0-9]/g, "") + "@s.whatsapp.net").includes(m.sender);
     const isBot = botNumber.includes(senderNumber);
 
     const isCmd = body.startsWith(prefix);

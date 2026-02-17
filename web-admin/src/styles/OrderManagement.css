@@ -1,0 +1,204 @@
+.order-container {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    padding: 32px;
+}
+
+.order-header {
+    max-width: 1400px;
+    margin: 0 auto 32px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.order-header h1 {
+    font-size: 36px;
+    margin: 0;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.order-controls {
+    max-width: 1400px;
+    margin: 0 auto 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+}
+
+.search-box {
+    position: relative;
+    flex: 1;
+    max-width: 400px;
+}
+
+.search-icon {
+    position: absolute;
+    left: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 20px;
+}
+
+.search-input {
+    width: 100%;
+    padding: 14px 16px 14px 48px;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    font-size: 16px;
+    background: white;
+    transition: all 0.3s ease;
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.refresh-btn {
+    padding: 14px 24px;
+    background: white;
+    color: #667eea;
+    border: 2px solid #667eea;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+}
+
+.refresh-btn:hover {
+    background: #667eea;
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+}
+
+.table-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    background: white;
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    overflow-x: auto;
+}
+
+.order-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.order-table thead {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.order-table th {
+    padding: 16px;
+    text-align: left;
+    color: white;
+    font-weight: 600;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.order-table th:first-child {
+    border-radius: 8px 0 0 0;
+}
+
+.order-table th:last-child {
+    border-radius: 0 8px 0 0;
+}
+
+.order-table tbody tr {
+    border-bottom: 1px solid #e2e8f0;
+    transition: background 0.2s ease;
+}
+
+.order-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+.order-table td {
+    padding: 16px;
+    color: #334155;
+    vertical-align: middle;
+}
+
+.status-badge {
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-draft {
+    background: #f1f5f9;
+    color: #64748b;
+}
+
+.status-pending_payment {
+    background: #fff7ed;
+    color: #ea580c;
+}
+
+.status-paid {
+    background: #d1fae5;
+    color: #059669;
+}
+
+.status-shipped {
+    background: #dbeafe;
+    color: #2563eb;
+}
+
+.status-cancelled {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+.status-done {
+    background: #d1fae5;
+    color: #059669;
+}
+
+.detail-btn {
+    padding: 6px 12px;
+    background: #eff6ff;
+    color: #2563eb;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.detail-btn:hover {
+    background: #2563eb;
+    color: white;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 48px 16px;
+    color: #94a3b8;
+    font-size: 16px;
+}
+
+.error-banner {
+    max-width: 1400px;
+    margin: 0 auto 24px;
+    padding: 16px;
+    background: #fee;
+    border: 1px solid #fcc;
+    border-radius: 12px;
+    color: #c33;
+}

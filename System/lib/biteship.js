@@ -3,13 +3,40 @@ const axios = require('axios');
 const API_KEY = 'biteship_live.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiY2hhdGJvdC1maXgiLCJ1c2VySWQiOiI2OTg3ZWI1ZGNhZGI5NTRlZTY1NWQzNzMiLCJpYXQiOjE3NzExNjQ3Mjl9.rVSLSL82OdwvSyr_jsKZ1RW1vYvV1n1reT0fU4Hn61k';
 const BASE_URL = 'https://api.biteship.com/v1';
 
-// STORE INFORMATION (Hardcoded for now, can be moved to config)
-const STORE_INFO = {
+const fs = require('fs');
+const path = require('path');
+
+const STORE_CONFIG_PATH = path.join(__dirname, 'database', 'store.json');
+
+// STORE INFORMATION (Loaded from JSON)
+let STORE_INFO = {
     name: "Amanin Guys Store",
-    phone: "6282245465241", // Replace with actual store phone
-    address: "Jl. Ketintang No. X, Surabaya", // Replace with actual address
-    area_id: "IDNP11IDNC434IDND5425IDZ60231", // Ketintang, Surabaya
-    postal_code: "60231"
+    phone: "6282245465241",
+    address: "Jl. Ketintang No. X, Surabaya",
+    area_id: "IDNP11IDNC434IDND5425IDZ60231",
+    postal_code: "60231",
+    latitude: -7.3117,
+    longitude: 112.7303
+};
+
+try {
+    if (fs.existsSync(STORE_CONFIG_PATH)) {
+        STORE_INFO = JSON.parse(fs.readFileSync(STORE_CONFIG_PATH, 'utf8'));
+    }
+} catch (e) {
+    console.error("Failed to load store config:", e);
+}
+
+exports.reloadStoreConfig = () => {
+    try {
+        if (fs.existsSync(STORE_CONFIG_PATH)) {
+            STORE_INFO = JSON.parse(fs.readFileSync(STORE_CONFIG_PATH, 'utf8'));
+            return true;
+        }
+    } catch (e) {
+        console.error("Failed to reload store config:", e);
+    }
+    return false;
 };
 
 const headers = {
@@ -23,6 +50,20 @@ exports.searchArea = async (query) => {
         return response.data.areas;
     } catch (error) {
         console.error("Biteship Search Error:", error.response ? error.response.data : error.message);
+        return [];
+    }
+};
+
+exports.getPickupLocations = async () => {
+    try {
+        const response = await axios.get(`${BASE_URL}/locations`, { headers });
+        if (response.data && response.data.locations) {
+            // Filter only 'origin' type locations
+            return response.data.locations.filter(loc => loc.type === 'origin');
+        }
+        return [];
+    } catch (error) {
+        console.error("Biteship Get Locations Error:", error.response ? error.response.data : error.message);
         return [];
     }
 };
@@ -57,8 +98,8 @@ exports.createDraftOrder = async (consignee, courier, items) => {
             origin_postal_code: STORE_INFO.postal_code,
             origin_area_id: STORE_INFO.area_id,
             origin_coordinate: {
-                latitude: -7.3117,
-                longitude: 112.7303
+                latitude: STORE_INFO.latitude || -7.3117,
+                longitude: STORE_INFO.longitude || 112.7303
             },
             destination_contact_name: consignee.name,
             destination_contact_phone: consignee.phone,

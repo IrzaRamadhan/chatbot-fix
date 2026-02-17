@@ -518,12 +518,18 @@ const reset = () => {
 }
 
 // getSession()
+// getSession()
 const getSession = () => {
-    if (globalClient && globalClient.user) {
-        return {
-            connected: true,
-            user: globalClient.user
-        };
+    if (globalClient) {
+        // Try to get user from client.user or authState.creds.me
+        const user = globalClient.user || (globalClient.authState && globalClient.authState.creds && globalClient.authState.creds.me);
+
+        if (user) {
+            return {
+                connected: true,
+                user: user
+            };
+        }
     }
     return { connected: false };
 }
