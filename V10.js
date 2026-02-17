@@ -12,6 +12,7 @@ const crypto = require("crypto");
 const speed = require('performance-now');
 const { spawn, exec, execSync } = require('child_process');
 const { default: baileys, getContentType, generateWAMessageFromContent, proto } = require("baileys");
+const session = require('./System/lib/session');
 const userSessions = {}; // Global session tracker
 module.exports = client = async (client, m, chatUpdate, store) => {
   console.log("[DEBUG] V10 handler triggered. Message type:", m.mtype);
@@ -78,12 +79,44 @@ module.exports = client = async (client, m, chatUpdate, store) => {
             // Start Closing Timer (5 min after follow-up)
             userSessions[chatId].closing = setTimeout(async () => {
               try {
-                await client.sendMessage(chatId, { text: "Terima kasih, selamat beraktifitas" });
-                delete userSessions[chatId];
-                session.delete(sender); // Also clear the functional session
+                // Send Interactive Button Message instead of auto-close
+                const buttons = [
+                  {
+                    name: "quick_reply",
+                    buttonParamsJson: JSON.stringify({
+                      display_text: "🔴 Akhiri Obrolan",
+                      id: "session_end"
+                    })
+                  },
+                  {
+                    name: "quick_reply",
+                    buttonParamsJson: JSON.stringify({
+                      display_text: "🟢 Lanjutkan",
+                      id: "session_continue"
+                    })
+                  }
+                ];
+
+                const msg = generateWAMessageFromContent(chatId, {
+                  viewOnceMessage: {
+                    message: {
+                      interactiveMessage: proto.Message.InteractiveMessage.create({
+                        body: proto.Message.InteractiveMessage.Body.create({ text: "Halo kak, sepertinya tidak ada aktivitas. Mau disudahi atau lanjut? 😊" }),
+                        footer: proto.Message.InteractiveMessage.Footer.create({ text: "Amanin Guys Bot" }),
+                        header: proto.Message.InteractiveMessage.Header.create({ title: "Sesi Validasi Akhir", subtitle: "", hasMediaAttachment: false }),
+                        nativeFlowMessage: proto.Message.InteractiveMessage.NativeFlowMessage.create({
+                          buttons: buttons
+                        })
+                      })
+                    }
+                  }
+                }, { userJid: client.user.id });
+
+                await client.relayMessage(chatId, msg.message, { messageId: msg.key.id });
+
               } catch (e) {
                 if (e?.output?.statusCode !== 428 && e?.message !== 'Connection Closed') {
-                  console.error("Error sending closing:", e);
+                  console.error("Error sending closing confirmation:", e);
                 }
               }
             }, 300000);
@@ -96,6 +129,36 @@ module.exports = client = async (client, m, chatUpdate, store) => {
           }
         }, 300000) // 5 min inactivity
       };
+    }
+
+    // --- Handle Session Control Buttons ---
+    if (body === 'session_end') {
+      await reply("Terima kasih, selamat beraktifitas! 👋");
+      if (userSessions[m.chat]) {
+        clearTimeout(userSessions[m.chat].followUp);
+        clearTimeout(userSessions[m.chat].closing);
+        delete userSessions[m.chat];
+      }
+      session.delete(sender);
+      return;
+    }
+
+    if (body === 'session_continue') {
+      const userSession = session.get(sender);
+      let msg = "Oke kak, kita lanjut ya! 🚀";
+
+      if (userSession && userSession.handler === 'ongkir') {
+        const stage = userSession.data.stage;
+        if (stage === 'ask_quantity') msg = "Siip! Jadi pesan berapa pcs nih? 😊";
+        else if (stage === 'ask_address') msg = "Lanjut kak! Alamatnya ditunggu ya... 🚚";
+        else if (stage === 'select_courier') msg = "Yuk lanjut pilih kurirnya kak... 📦";
+        else if (stage === 'review_order') msg = "Pesanan aman. Jangan lupa selesaikan pembayaran ya! 💸";
+      }
+
+      await reply(msg);
+      // Timers will be reset automatically by the next message processing loop or strictly here?
+      // logic above resets timers on ANY message. So this message "session_continue" ALREADY reset the timers at top of logic.
+      return;
     }
     // --------------------------
     // --------------------------
@@ -269,7 +332,7 @@ module.exports = client = async (client, m, chatUpdate, store) => {
       isGroupOwner
     };
 
-    const session = require('./System/lib/session');
+
 
     // Check for active session
     // Allow users to force reset session with "halo"
