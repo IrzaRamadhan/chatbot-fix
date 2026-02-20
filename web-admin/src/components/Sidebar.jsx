@@ -44,6 +44,10 @@ export default function Sidebar() {
                     <span className="icon">🛍️</span>
                     Order
                 </Link>
+                <Link to="/customers" className={`nav-link ${isActive('/customers')}`}>
+                    <span className="icon">👥</span>
+                    Customer
+                </Link>
             </nav>
 
             <div className="sidebar-footer">

@@ -1,7 +1,8 @@
 const { proto, generateWAMessageFromContent } = require("baileys");
 const supabase = require("../System/lib/supabase");
+const ai = require("../System/lib/ai");
 
-module.exports = async (m, { client, reply }) => {
+module.exports = async (m, { client, reply, pushname }) => {
     try {
         // Fetch products from Supabase
         const { data: products, error } = await supabase
@@ -18,12 +19,15 @@ module.exports = async (m, { client, reply }) => {
             return reply("Belum ada produk yang tersedia saat ini.");
         }
 
+        // Generate AI greeting
+        const greetingText = await ai.generateGreeting(pushname || "Kak", products);
+
         // Map products to list rows
         const productRows = products.map(product => ({
             header: product.NameProd || "Produk",
             title: product.NameProd || "Tanpa Nama",
             description: `Rp ${parseInt(product.PriceProd).toLocaleString('id-ID')} | Stok: ${product.StockProd}`,
-            id: `.detail ${product.IDprod}`  // ID triggers the detail command
+            id: `.detail ${product.IDprod}`
         }));
 
         const sections = [
@@ -42,7 +46,7 @@ module.exports = async (m, { client, reply }) => {
                     },
                     interactiveMessage: proto.Message.InteractiveMessage.create({
                         body: proto.Message.InteractiveMessage.Body.create({
-                            text: "Terima kasih, silahkan cek produk kami 👇"
+                            text: greetingText
                         }),
                         footer: proto.Message.InteractiveMessage.Footer.create({
                             text: "© Amanin Guys Bot"
@@ -77,7 +81,7 @@ module.exports = async (m, { client, reply }) => {
     }
 };
 
-module.exports.command = ['halo', 'hi', 'hello', 'hallo'];
+module.exports.command = ['order', 'halo', 'hi', 'hello', 'hallo'];
 module.exports.tags = ['main'];
-module.exports.help = ['halo'];
+module.exports.help = ['order'];
 

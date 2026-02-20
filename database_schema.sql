@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS customers (
     district TEXT,
     city TEXT,
     postal_code TEXT,
+    current_session TEXT DEFAULT 'idle',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

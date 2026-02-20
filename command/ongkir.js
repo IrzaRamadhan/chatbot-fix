@@ -1,7 +1,7 @@
 const session = require('../System/lib/session');
 const biteship = require('../System/lib/biteship');
 const supabase = require("../System/lib/supabase");
-const { proto, generateWAMessageFromContent } = require("baileys");
+const { proto, generateWAMessageFromContent, prepareWAMessageMedia } = require("baileys");
 
 const ORIGIN_AREA_ID = 'IDNP11IDNC434IDND5425IDZ60231'; // Ketintang, Surabaya
 const QRIS_DATA = "00020101021126610014COM.GO-JEK.WWW01189360091438156980690210G8156980690303UMI51440014ID.CO.QRIS.WWW0215ID10254460000570303UMI5204581653033605802ID5925IRZA%20MAULANA%20RAMADHAN,%20Ga6007SUMBAWA61058431662070703A0163041CB7";
@@ -147,51 +147,109 @@ module.exports.handleInput = async (m, { client, reply, fetchJson }, userState) 
                 const price = userState.data.productPrice;
                 const shippingCost = userState.data.selectedRate.price;
                 const grandTotal = (price * qty) + shippingCost;
-
                 userState.data.grandTotal = grandTotal;
 
-                // Send QRIS
-                await reply("⏳ Membuat kode pembayaran...");
-                const qrisUrl = `https://cvqris-ariepulsa.my.id/api/?qris_data=${QRIS_DATA}&nominal=${grandTotal}`;
-                const qrisData = await fetchJson(qrisUrl);
+                await reply("⏳ Memproses pesanan & membuat kode QRIS...");
 
-                if (qrisData?.link_qris) {
-                    // Send QRIS Image
-                    await client.sendMessage(m.chat, {
-                        image: { url: qrisData.link_qris },
-                        caption: `✅ *Total: Rp ${grandTotal.toLocaleString('id-ID')}*\n\nSilakan scan QRIS di atas.\nJika sudah, klik tombol di bawah.`
-                    }, { quoted: m });
+                try {
+                    // 1. Save Customer (Upsert)
+                    await supabase.from('customers').upsert({
+                        phone_number: m.sender.split('@')[0],
+                        push_name: m.pushName,
+                        full_name: userState.data.consignee.name,
+                        address: userState.data.consignee.address,
+                        district: userState.data.consignee.district,
+                        city: userState.data.consignee.city || '',
+                        postal_code: userState.data.consignee.postal_code || ''
+                    });
 
-                    // Send Confirmation Button
-                    const buttons = [
-                        {
-                            name: "quick_reply",
-                            buttonParamsJson: JSON.stringify({
-                                display_text: "✅ Sudah Transfer",
-                                id: "action_payment_confirmed"
-                            })
-                        }
-                    ];
+                    // 2. Insert Order (Pending Payment)
+                    const { data: orderData, error: orderError } = await supabase
+                        .from('orders')
+                        .insert({
+                            customer_phone: m.sender.split('@')[0],
+                            product_id: userState.data.productId,
+                            quantity: userState.data.quantity,
+                            total_amount: grandTotal,
+                            shipping_cost: shippingCost,
+                            courier_company: userState.data.selectedRate.courier_name,
+                            courier_service: userState.data.selectedRate.courier_service_name,
+                            status: 'pending_payment',
+                            created_at: new Date()
+                        })
+                        .select()
+                        .single();
 
-                    const msg = generateWAMessageFromContent(m.chat, {
-                        viewOnceMessage: {
-                            message: {
-                                interactiveMessage: proto.Message.InteractiveMessage.create({
-                                    body: proto.Message.InteractiveMessage.Body.create({ text: "Apakah sudah melakukan pembayaran?" }),
-                                    footer: proto.Message.InteractiveMessage.Footer.create({ text: "Amanin Guys Bot" }),
-                                    header: proto.Message.InteractiveMessage.Header.create({ title: "Konfirmasi Pembayaran", subtitle: "", hasMediaAttachment: false }),
-                                    nativeFlowMessage: proto.Message.InteractiveMessage.NativeFlowMessage.create({ buttons: buttons })
-                                })
+                    if (orderError || !orderData) {
+                        console.error("Order Insert Error:", orderError);
+                        return reply("❌ Gagal menyimpan pesanan. Silakan coba lagi.");
+                    }
+
+                    const orderId = orderData.id;
+                    userState.data.orderId = orderId;
+
+                    // 3. Create WijayaPay Transaction
+                    const wijayapay = require('../System/lib/wijayapay');
+                    const QRCode = require('qrcode');
+
+                    const transaction = await wijayapay.createTransaction(orderId, grandTotal);
+
+                    if (transaction && transaction.success && transaction.data && transaction.data.qr_string) {
+                        const qrString = transaction.data.qr_string;
+                        const qrBuffer = await QRCode.toBuffer(qrString);
+
+                        // Send QRIS Image
+                        await client.sendMessage(m.chat, {
+                            image: qrBuffer,
+                            caption: `✅ *Total: Rp ${grandTotal.toLocaleString('id-ID')}*\n🆔 Order ID: \`${orderId}\`\n\nSilakan scan QRIS di atas untuk membayar.\n\n📸 Setelah bayar, kirimkan *screenshot bukti pembayaran* di chat ini ya kak.`
+                        }, { quoted: m });
+
+                        // 4. Create Biteship Draft Order
+                        try {
+                            const biteship = require('../System/lib/biteship');
+                            const consignee = {
+                                name: userState.data.consignee.name,
+                                phone: m.sender.split('@')[0],
+                                address: userState.data.consignee.address,
+                                postal_code: userState.data.consignee.postal_code,
+                                area_id: userState.data.consignee.area_id
+                            };
+                            const courier = userState.data.selectedRate;
+                            const items = [{
+                                name: userState.data.productName,
+                                value: userState.data.productPrice * userState.data.quantity,
+                                weight: userState.data.totalWeight || 1000,
+                                quantity: userState.data.quantity
+                            }];
+
+                            const draftOrder = await biteship.createDraftOrder(consignee, courier, items);
+
+                            if (draftOrder && draftOrder.id) {
+                                // Save draft order ID to Supabase
+                                await supabase
+                                    .from('orders')
+                                    .update({ biteship_order_id: draftOrder.id })
+                                    .eq('id', orderId);
+                                console.log(`Biteship Draft Order created: ${draftOrder.id} for Order ${orderId}`);
                             }
+                        } catch (biteshipErr) {
+                            console.error("Biteship Draft Error (non-blocking):", biteshipErr.message);
+                            // Non-blocking: payment still proceeds even if draft fails
                         }
-                    }, { userJid: client.user.id });
 
-                    await client.relayMessage(m.chat, msg.message, { messageId: msg.key.id });
+                        // Update Stage
+                        userState.data.stage = 'waiting_payment';
+                        session.add(m.sender, 'ongkir', userState.data);
 
-                    userState.data.stage = 'payment_confirmation';
+                    } else {
+                        console.error("WijayaPay Error:", transaction);
+                        const errMsg = transaction ? transaction.message : "No response";
+                        reply(`❌ Gagal membuat QRIS.\nMsg: ${errMsg}`);
+                    }
 
-                } else {
-                    reply("❌ Gagal generate QRIS.");
+                } catch (err) {
+                    console.error("Process Error:", err);
+                    reply("❌ Terjadi kesalahan sistem.");
                 }
 
             } else if (body === 'action_change_courier') {
@@ -203,72 +261,40 @@ module.exports.handleInput = async (m, { client, reply, fetchJson }, userState) 
             }
         }
 
-        // ----- STAGE 5: CONFIRMATION & DRAFT CREATION -----
-        else if (userState.data.stage === 'payment_confirmation') {
-            if (body === 'action_payment_confirmed') {
-                await reply("⏳ Memproses data pesanan...");
+        // ----- STAGE 5: WAITING PAYMENT (Kirim Bukti) -----
+        else if (userState.data.stage === 'waiting_payment') {
+            const isImage = m.message && (m.message.imageMessage || (m.message.extendedTextMessage && m.message.extendedTextMessage.contextInfo && m.message.extendedTextMessage.contextInfo.quotedMessage && m.message.extendedTextMessage.contextInfo.quotedMessage.imageMessage));
 
-                // 1. Create Biteship Draft Order
+            if (isImage) {
+                // Customer sent proof of payment - forward to admin
+                await reply("📥 Bukti pembayaran diterima! Sedang diteruskan ke Admin...");
+
+                const orderId = userState.data.orderId;
+                const caption = `🔔 *BUKTI PEMBAYARAN BARU*\n\n👤 *Customer:* ${m.pushName || 'Unknown'}\n📱 *No HP:* ${m.sender.split('@')[0]}\n🆔 *Order ID:* \`${orderId}\`\n📦 *Produk:* ${userState.data.productName}\n🔢 *Qty:* ${userState.data.quantity}\n💰 *Total:* Rp ${userState.data.grandTotal.toLocaleString('id-ID')}\n🚚 *Kurir:* ${userState.data.selectedRate.courier_name} - ${userState.data.selectedRate.courier_service_name}\n\nKetik *.acc ${orderId}* untuk konfirmasi pembayaran.`;
+
                 try {
-                    const draft = await biteship.createDraftOrder(
-                        userState.data.consignee,
-                        userState.data.selectedRate, // Contains courier info
-                        userState.data.items
-                    );
-
-                    if (!draft || !draft.id) {
-                        return reply("❌ Gagal membuat Draft Order di sistem kurir. Silakan hubungi Admin.");
-                    }
-                    userState.data.draftId = draft.id;
-
-                    // 2. Save Customer Data (Upsert)
-                    const { error: custError } = await supabase
-                        .from('customers')
-                        .upsert({
-                            phone_number: m.sender.split('@')[0],
-                            push_name: m.pushName,
-                            full_name: userState.data.consignee.name,
-                            address: userState.data.consignee.address,
-                            district: userState.data.consignee.district, // Note: We validated district inside parseForm but didn't save raw text separate from searchArea result? 
-                            // Actually searchArea result is used. We can save what we parsed.
-                            // To keep simple, assume parsed data is good.
-                            city: userState.data.consignee.city || '',
-                            postal_code: userState.data.consignee.postal_code || ''
-                        });
-
-                    if (custError) console.error("Customer Save Error:", custError);
-
-                    // 3. Save Order Data
-                    const { data: orderData, error: orderError } = await supabase
-                        .from('orders')
-                        .insert({
-                            customer_phone: m.sender.split('@')[0],
-                            product_id: userState.data.productId,
-                            quantity: userState.data.quantity,
-                            total_amount: userState.data.grandTotal,
-                            shipping_cost: userState.data.selectedRate.price,
-                            courier_company: userState.data.selectedRate.courier_name,
-                            courier_service: userState.data.selectedRate.courier_service_name,
-                            status: 'pending_verification',
-                            biteship_draft_id: draft.id
-                        })
-                        .select()
-                        .single();
-
-                    if (orderError) {
-                        console.error("Order Save Error:", orderError);
-                        return reply("⚠️ Pesanan tersimpan di Biteship tapi gagal masuk database bot. Screenshot chat ini ke Admin.");
-                    }
-
-                    userState.data.orderIdDB = orderData.id;
-                    userState.data.stage = 'pending_verification';
-
-                    await reply(`✅ *Pesanan Masuk!* (Draft ID: ${draft.id})\n\nLangkah Terakhir: 📸 *Kirim Foto Bukti Transfer* di sini untuk verifikasi.`);
-
-                } catch (err) {
-                    console.error("Draft Creation Error:", err);
-                    reply("❌ Terjadi kesalahan saat membuat Order. Coba lagi nanti.");
+                    // Download and forward image to admin
+                    const { downloadMediaMessage } = require('baileys');
+                    const buffer = await downloadMediaMessage(m, 'buffer', {});
+                    await client.sendMessage(OWNER_NUMBER, {
+                        image: buffer,
+                        caption: caption
+                    });
+                } catch (fwdErr) {
+                    console.error("Forward proof error:", fwdErr.message);
+                    // Fallback: send text notification to admin
+                    await client.sendMessage(OWNER_NUMBER, {
+                        text: caption + '\n\n⚠️ Foto gagal diteruskan, cek chat customer langsung.'
+                    });
                 }
+
+                await reply("✅ Bukti pembayaran sudah dikirim ke Admin. Mohon tunggu konfirmasi ya kak! 🙏");
+
+                // Keep session with orderId for admin to reference
+                userState.data.stage = 'waiting_admin_confirm';
+                session.add(m.sender, 'ongkir', userState.data);
+            } else {
+                await reply(`📸 Silakan kirimkan *screenshot bukti pembayaran* untuk Order ID: \`${userState.data.orderId}\`\n\nAtau ketik *.batal* untuk membatalkan.`);
             }
         }
 

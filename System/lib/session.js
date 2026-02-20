@@ -30,3 +30,7 @@ exports.delete = (jid) => {
     delete sessions[jid];
     saveSessions();
 };
+
+exports.getAll = () => {
+    return { ...sessions };
+};

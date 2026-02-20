@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import ConfigManagement from './pages/ConfigManagement'
 import ProductManagement from './pages/ProductManagement'
 import OrderManagement from './pages/OrderManagement'
+import CustomerManagement from './pages/CustomerManagement'
 
 function App() {
   return (
@@ -42,6 +43,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <OrderManagement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/customers"
+            element={
+              <ProtectedRoute>
+                <CustomerManagement />
               </ProtectedRoute>
             }
           />

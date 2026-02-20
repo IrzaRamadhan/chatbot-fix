@@ -33,7 +33,13 @@ const config = {
         GitHub: "https://github.com/",
         Telegram: "https://t.me/",
         ChannelWA: "https://whatsapp.com/channel/0029VbCU7537oQhc5hmIZS1Q"
-    }
+    },
+    wijayaPay: {
+        merchantCode: "WP6996a11cb388d",
+        apiKey: "2b1edcde2c6774bc8854db39de"
+    },
+    geminiApiKey: "AIzaSyAVY4au5RElqEwF_QsvXPuiAf9qMS2u2KM",
+    aiEnabled: true
 }
 
 module.exports = config;

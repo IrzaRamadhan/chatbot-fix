@@ -33,6 +33,17 @@ app.get('/', (req, res) => {
     res.render('index');
 });
 
+// API: Get active bot sessions
+app.get('/api/sessions', (req, res) => {
+    try {
+        const session = require('./System/lib/session');
+        const allSessions = session.getAll ? session.getAll() : {};
+        res.json(allSessions);
+    } catch (e) {
+        res.json({});
+    }
+});
+
 // API: Get current config
 app.get('/api/config', (req, res) => {
     try {
@@ -207,6 +218,129 @@ app.get('/api/biteship/area', async (req, res) => {
         const areas = await biteship.searchArea(query);
         res.json({ success: true, data: areas });
     } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// API: Get Address Book
+app.get('/api/address-book', (req, res) => {
+    try {
+        const addressBookPath = path.join(__dirname, 'System/lib/database', 'address_book.json');
+        if (fs.existsSync(addressBookPath)) {
+            const addressBook = JSON.parse(fs.readFileSync(addressBookPath, 'utf8'));
+            res.json({ success: true, data: addressBook });
+        } else {
+            res.json({ success: true, data: [] });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// API: Add/Update Address Book Item
+app.post('/api/address-book', (req, res) => {
+    try {
+        const addressBookPath = path.join(__dirname, 'System/lib/database', 'address_book.json');
+        let addressBook = [];
+        if (fs.existsSync(addressBookPath)) {
+            addressBook = JSON.parse(fs.readFileSync(addressBookPath, 'utf8'));
+        }
+
+        const newAddress = req.body;
+        if (!newAddress.id) {
+            newAddress.id = Date.now().toString();
+        }
+
+        const existingIndex = addressBook.findIndex(a => a.id === newAddress.id);
+        if (existingIndex >= 0) {
+            addressBook[existingIndex] = newAddress;
+        } else {
+            addressBook.push(newAddress);
+        }
+
+        fs.writeFileSync(addressBookPath, JSON.stringify(addressBook, null, 2));
+        res.json({ success: true, message: 'Address saved', data: newAddress });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// API: Delete Address Book Item
+app.delete('/api/address-book/:id', (req, res) => {
+    try {
+        const addressBookPath = path.join(__dirname, 'System/lib/database', 'address_book.json');
+        if (!fs.existsSync(addressBookPath)) {
+            return res.status(404).json({ success: false, error: 'Address book not found' });
+        }
+
+        let addressBook = JSON.parse(fs.readFileSync(addressBookPath, 'utf8'));
+        const id = req.params.id;
+        addressBook = addressBook.filter(a => a.id !== id);
+
+        fs.writeFileSync(addressBookPath, JSON.stringify(addressBook, null, 2));
+        res.json({ success: true, message: 'Address deleted' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+
+// API: WijayaPay Webhook Notification
+app.post('/api/wijayapay/notification', async (req, res) => {
+    try {
+        console.log("WijayaPay Webhook Received:", JSON.stringify(req.body, null, 2));
+
+        const { ref_id, status, status_transaction, amount, external_id } = req.body;
+
+        const paymentStatus = (status || status_transaction || '').toUpperCase();
+        const orderId = ref_id || external_id;
+
+        if (paymentStatus === 'PAID' || paymentStatus === 'SUCCESS' || paymentStatus === 'SETTLEMENT') {
+            const supabase = require('./System/lib/supabase');
+
+            // 1. Update DB first (most important)
+            const { data: order, error } = await supabase
+                .from('orders')
+                .update({ status: 'PAID' })
+                .eq('id', orderId)
+                .select()
+                .single();
+
+            if (error) {
+                console.error("Supabase Update Error:", error);
+                return res.status(500).json({ success: false, message: 'DB Update Failed' });
+            }
+
+            // DB updated successfully - respond to WijayaPay first
+            res.json({ success: true, message: 'Order updated' });
+
+            // 2. Notify User via WhatsApp (non-blocking, after response)
+            if (order) {
+                console.log(`Order ${orderId} PAID. Notifying user ${order.customer_phone}...`);
+                try {
+                    if (global.client && typeof global.client.sendMessage === 'function') {
+                        const phone = order.customer_phone.replace(/\D/g, '');
+                        const jid = `${phone}@s.whatsapp.net`;
+
+                        const msg = `✅ *PEMBAYARAN BERHASIL*\n\nTerima kasih! Pembayaran untuk Order ID: *${orderId}* sebesar *Rp ${parseInt(order.total_amount).toLocaleString('id-ID')}* telah diterima.\n\nPesanan Anda akan segera diproses.`;
+
+                        await global.client.sendMessage(jid, { text: msg });
+                        console.log(`WA Notification sent to ${jid}`);
+                    } else {
+                        console.error("Global Client not available or sendMessage not found. Keys:", global.client ? Object.keys(global.client).slice(0, 5) : 'null');
+                    }
+                } catch (waError) {
+                    console.error("WA Notification Error (non-blocking):", waError.message);
+                }
+            }
+            return; // Already responded above
+        }
+
+        res.json({ success: true, message: 'Status ignored' });
+
+    } catch (error) {
+        console.error("WijayaPay Webhook Error:", error);
         res.status(500).json({ success: false, error: error.message });
     }
 });

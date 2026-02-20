@@ -92,6 +92,7 @@ const clientstart = async (socket = null, pNumber = null) => {
         browser: ["Ubuntu", "Chrome", "20.0.00"]
     });
     globalClient = client;
+    global.client = client;
 
     if (config().status.terminal && !client.authState.creds.registered) {
         let phoneNumber = pNumber;
