@@ -168,4 +168,38 @@ function clearHistory(userJid) {
     delete chatHistories[userJid];
 }
 
-module.exports = { generateGreeting, chatReply, clearHistory };
+/**
+ * Generate a follow-up message based on admin instruction
+ * @param {string} instruction - Admin-defined instruction from followup_config
+ * @param {string} pushname - Customer's WhatsApp name
+ * @returns {string} AI-generated follow-up text
+ */
+async function generateFollowUp(instruction, pushname = "Kak") {
+    if (!config.aiEnabled || !config.geminiApiKey) {
+        return instruction; // Fallback to raw instruction
+    }
+
+    try {
+        const prompt = `Buatkan pesan follow-up WhatsApp untuk customer bernama "${pushname}" berdasarkan instruksi berikut:
+"${instruction}"
+Pesan harus singkat (1-2 kalimat), natural, ramah, pakai bahasa Indonesia santai. Gunakan 1-2 emoji. Jangan pakai format list.`;
+
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: {
+                maxOutputTokens: 100,
+                temperature: 0.8,
+            }
+        });
+
+        const text = response.text?.trim();
+        if (text && text.length > 5) return text;
+        return instruction;
+    } catch (error) {
+        console.error("AI FollowUp Error:", error.message);
+        return instruction;
+    }
+}
+
+module.exports = { generateGreeting, chatReply, clearHistory, generateFollowUp };

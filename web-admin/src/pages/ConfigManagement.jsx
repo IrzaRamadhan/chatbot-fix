@@ -23,6 +23,17 @@ export default function ConfigManagement() {
     const [loading, setLoading] = useState(false)
     const [successMsg, setSuccessMsg] = useState('')
     const [errorMsg, setErrorMsg] = useState('')
+
+    // Auto-clear messages after 5 seconds
+    useEffect(() => {
+        if (successMsg || errorMsg) {
+            const timer = setTimeout(() => {
+                setSuccessMsg('')
+                setErrorMsg('')
+            }, 5000)
+            return () => clearTimeout(timer)
+        }
+    }, [successMsg, errorMsg])
     const [sessionInfo, setSessionInfo] = useState(null)
 
     const [storeConfig, setStoreConfig] = useState({
@@ -340,14 +351,26 @@ export default function ConfigManagement() {
         <Layout>
             <div className="config-container">
                 <div className="config-header">
-
-                    <h1>Manajemen Config</h1>
+                    <div className="section-header">
+                        <h1>Manajemen Config</h1>
+                        <div className="notification-area">
+                            {successMsg && (
+                                <div className="alert success toast">
+                                    <span>{successMsg}</span>
+                                    <button className="close-alert" onClick={() => setSuccessMsg('')}>✕</button>
+                                </div>
+                            )}
+                            {errorMsg && (
+                                <div className="alert error toast">
+                                    <span>{errorMsg}</span>
+                                    <button className="close-alert" onClick={() => setErrorMsg('')}>✕</button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
 
                 <div className="config-content">
-                    {successMsg && <div className="alert success">{successMsg}</div>}
-                    {errorMsg && <div className="alert error">{errorMsg}</div>}
-
                     {/* ... Bot Status & Pairing ... */}
                     <div className="config-section">
                         <h2>Bot Status</h2>

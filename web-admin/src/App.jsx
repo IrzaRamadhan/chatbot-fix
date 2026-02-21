@@ -7,6 +7,7 @@ import ConfigManagement from './pages/ConfigManagement'
 import ProductManagement from './pages/ProductManagement'
 import OrderManagement from './pages/OrderManagement'
 import CustomerManagement from './pages/CustomerManagement'
+import FollowUpConfig from './pages/FollowUpConfig'
 
 function App() {
   return (
@@ -51,6 +52,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <CustomerManagement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/followup"
+            element={
+              <ProtectedRoute>
+                <FollowUpConfig />
               </ProtectedRoute>
             }
           />

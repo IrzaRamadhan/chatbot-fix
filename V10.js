@@ -62,21 +62,43 @@ module.exports = client = async (client, m, chatUpdate, store) => {
         userSessions[chatId] = {
           followUp: setTimeout(async () => {
             try {
-              const userSession = session.get(senderNumber + '@s.whatsapp.net'); // Helper handles jid normalization usually, but let's be safe
-              // Actually session.get uses keys as they were added. In V10 we used 'sender' (full jid).
-              // Let's use 'sender' variable which is defined in scope? 
-              // Wait, sender is defined inside the main function, but this timeout callback closes over it?
-              // Yes, 'sender' is available in scope.
-
-              let msg = "gimana nih kak, ada lagi ga?"; // Default message
+              let msg = "gimana nih kak, ada lagi ga?"; // Default fallback
 
               const currentSession = session.get(sender);
-              if (currentSession && currentSession.handler === 'ongkir') {
-                const stage = currentSession.data.stage;
-                if (stage === 'ask_quantity') msg = "Kak, jadi pesan berapa pcs nih? 😊";
-                else if (stage === 'ask_address') msg = "Kak, alamatnya belum dikirim ya? Ditunggu biar bisa dicek ongkirnya. 🚚";
-                else if (stage === 'select_courier') msg = "Kak, kurirnya belum dipilih nih. Mau pakai yang mana? 📦";
-                else if (stage === 'review_order') msg = "Kak, pesanan sudah siap diproses. Jangan lupa selesaikan pembayaran ya! 💸";
+              const sessionType = currentSession?.handler || 'idle';
+              const sessionStage = currentSession?.data?.stage || '';
+
+              // Try to get follow-up config from Supabase
+              try {
+                const supabase = require('./System/lib/supabase');
+                const ai = require('./System/lib/ai');
+
+                let query = supabase
+                  .from('followup_config')
+                  .select('*')
+                  .eq('session_type', sessionType)
+                  .eq('is_active', true);
+
+                if (sessionStage) {
+                  query = query.eq('session_stage', sessionStage);
+                }
+
+                const { data: configs } = await query.limit(1);
+
+                if (configs && configs.length > 0) {
+                  const cfg = configs[0];
+                  msg = await ai.generateFollowUp(cfg.ai_instruction, pushname || "Kak");
+                }
+              } catch (cfgErr) {
+                console.log("FollowUp config error, using fallback:", cfgErr.message);
+                // Fallback to hardcoded
+                if (currentSession && currentSession.handler === 'ongkir') {
+                  const stage = currentSession.data.stage;
+                  if (stage === 'parse_form') msg = "Kak, form pemesanannya belum diisi ya? Ditunggu 😊";
+                  else if (stage === 'select_courier') msg = "Kak, kurirnya belum dipilih nih 📦";
+                  else if (stage === 'review_order') msg = "Kak, jangan lupa konfirmasi pesanannya ya! 💸";
+                  else if (stage === 'waiting_payment') msg = "Kak, bukti pembayarannya ditunggu ya 🙏";
+                }
               }
 
               await client.sendMessage(chatId, { text: msg });

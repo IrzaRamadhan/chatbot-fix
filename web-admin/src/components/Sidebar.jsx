@@ -48,6 +48,10 @@ export default function Sidebar() {
                     <span className="icon">👥</span>
                     Customer
                 </Link>
+                <Link to="/followup" className={`nav-link ${isActive('/followup')}`}>
+                    <span className="icon">⏰</span>
+                    Follow-Up
+                </Link>
             </nav>
 
             <div className="sidebar-footer">
