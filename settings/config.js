@@ -1,5 +1,7 @@
 const fs = require('fs')
 
+require('dotenv').config();
+
 const config = {
     owner: "6287728892890",
     botNumber: "6285124153817",
@@ -38,7 +40,7 @@ const config = {
         merchantCode: "WP6996a11cb388d",
         apiKey: "2b1edcde2c6774bc8854db39de"
     },
-    geminiApiKey: "AIzaSyAVY4au5RElqEwF_QsvXPuiAf9qMS2u2KM",
+    geminiApiKey: process.env.GEMINI_API_KEY || "",
     aiEnabled: true
 }
 

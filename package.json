@@ -22,6 +22,7 @@
         "colors": "latest",
         "concurrently": "^9.0.1",
         "crypto": "^1.0.1",
+        "dotenv": "^17.3.1",
         "ejs": "^4.0.1",
         "express": "^5.2.1",
         "fluent-ffmpeg": "^2.1.3",
