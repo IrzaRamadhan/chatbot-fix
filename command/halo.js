@@ -81,7 +81,7 @@ module.exports = async (m, { client, reply, pushname }) => {
     }
 };
 
-module.exports.command = ['order', 'halo', 'hi', 'hello', 'hallo'];
+module.exports.command = ['order'];
 module.exports.tags = ['main'];
 module.exports.help = ['order'];
 

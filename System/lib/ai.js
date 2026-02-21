@@ -5,17 +5,17 @@ const path = require("path");
 
 require('dotenv').config({ override: true });
 
-console.log("[DEBUG] AI Library (ai.js) reloaded - Using Ultra-Robust Direct API Mode.");
+console.log("[DEBUG] AI Library (ai.js) reloaded - Using OpenRouter Mode.");
 
 const chatHistories = {};
 const MAX_HISTORY = 10;
 
-// PREFERRED MODELS Based on user's key availability
-const PREFERRED_MODELS = [
-    "gemini-2.0-flash-lite-001",
-    "gemini-2.0-flash",
-    "gemini-flash-latest",
-    "gemini-1.5-flash"
+// Fallback models if the user-specified one fails
+const FALLBACK_MODELS = [
+    process.env.AI_MODEL || "stepfun/step-3.5-flash:free",
+    "google/gemini-2.0-flash-exp:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "mistralai/mistral-7b-instruct:free"
 ];
 
 function getStoreInfo() {
@@ -41,67 +41,59 @@ ATURAN: Jawab santai, ramah, max 1 kalimat pendek. Jika order arahkan ketik .ord
 }
 
 /**
- * Common function to call Gemini API directly with Model Fallback
+ * Common function to call OpenRouter API
  */
-async function callGemini(contents, systemInstruction = "") {
-    const apiKey = process.env.GEMINI_API_KEY || config.geminiApiKey;
-    if (!apiKey) return null;
+async function callOpenRouter(messages) {
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+        console.error("[DEBUG] OpenRouter API Key missing in .env");
+        return null;
+    }
 
-    let lastError = null;
-
-    for (const modelName of PREFERRED_MODELS) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-
+    for (const modelName of FALLBACK_MODELS) {
         try {
-            const payload = {
-                contents: contents,
-                generationConfig: {
-                    maxOutputTokens: 200,
+            const response = await axios.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                {
+                    model: modelName,
+                    messages: messages,
+                    max_tokens: 200,
                     temperature: 0.7,
+                },
+                {
+                    headers: {
+                        "Authorization": `Bearer ${apiKey}`,
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "http://localhost:3000", // Optional, for OpenRouter analytics
+                        "X-Title": "WhatsApp Shop Bot", // Optional
+                    },
+                    timeout: 20000 // 20s timeout for OpenRouter
                 }
-            };
+            );
 
-            if (systemInstruction) {
-                payload.systemInstruction = {
-                    parts: [{ text: systemInstruction }]
-                };
-            }
-
-            const response = await axios.post(url, payload, {
-                headers: { 'Content-Type': 'application/json' },
-                timeout: 10000
-            });
-
-            if (response.data && response.data.candidates && response.data.candidates[0].content) {
-                return response.data.candidates[0].content.parts[0].text;
+            if (response.data && response.data.choices && response.data.choices[0].message) {
+                const text = response.data.choices[0].message.content;
+                if (text) {
+                    console.log(`[DEBUG] OpenRouter success using model: ${modelName}`);
+                    return text;
+                }
             }
         } catch (error) {
-            lastError = error;
             const status = error.response?.status;
-            const errorMsg = error.response?.data?.error?.message || "";
+            const errorMsg = error.response?.data?.error?.message || error.message;
 
-            if (status === 404) {
-                console.log(`[DEBUG] Model ${modelName} not found, trying next...`);
+            console.error(`[DEBUG] Error with OpenRouter model ${modelName}:`, errorMsg);
+
+            if (status === 402 || status === 429) {
+                // Out of credits or rate limited, try next model if it's free, otherwise might need more models
+                console.log(`[DEBUG] Status ${status}, trying next fallback model...`);
                 continue;
             }
 
-            if (status === 429 || errorMsg.includes("quota")) {
-                console.error(`[DEBUG] Quota Exceeded for ${modelName}.`);
-                // If it's a quota issue for the whole tier, continuing might not help, 
-                // but let's try one more model just in case.
-                continue;
-            }
-
-            console.error(`[DEBUG] Error with model ${modelName}:`, errorMsg || error.message);
+            // For other errors, also try next
+            continue;
         }
     }
-
-    // If we reach here, all models failed. 
-    // If the last error was quota, return a special message.
-    if (lastError?.response?.status === 429 || lastError?.response?.data?.error?.message?.includes("quota")) {
-        return "Maaf ya kak, saat ini aku sedang menerima banyak tamu. Coba lagi sebentar lagi ya! 🙏";
-    }
-
     return null;
 }
 
@@ -113,19 +105,23 @@ async function chatReply(userJid, userMessage, pushname, products = []) {
         const history = chatHistories[userJid];
         const systemPrompt = buildSystemPrompt(products);
 
-        const contents = [];
-        for (const msg of history) {
-            contents.push({ role: msg.role === 'user' ? 'user' : 'model', parts: [{ text: msg.text }] });
-        }
-        contents.push({ role: "user", parts: [{ text: userMessage }] });
+        const messages = [
+            { role: "system", content: systemPrompt }
+        ];
 
-        const reply = await callGemini(contents, systemPrompt);
+        // Add history
+        for (const msg of history) {
+            messages.push({ role: msg.role === 'user' ? 'user' : 'assistant', content: msg.text });
+        }
+
+        // Add current message
+        messages.push({ role: "user", content: userMessage });
+
+        const reply = await callOpenRouter(messages);
 
         if (reply) {
-            if (reply.includes("Maaf ya kak")) return reply; // Don't save quota errors to history
-
             history.push({ role: "user", text: userMessage });
-            history.push({ role: "model", text: reply });
+            history.push({ role: "assistant", text: reply });
             while (history.length > MAX_HISTORY * 2) history.shift();
             return reply.trim();
         }
@@ -140,9 +136,10 @@ async function generateFollowUp(instruction, pushname = "Kak") {
     if (!config.aiEnabled) return instruction;
     try {
         const prompt = `Buatkan pesan follow-up WA singkat (1 kalimat) untuk customer "${pushname}" berdasarkan instruksi: "${instruction}". Pakai bahasa Indonesia ramah.`;
-        const contents = [{ role: "user", parts: [{ text: prompt }] }];
-        const reply = await callGemini(contents);
-        return (reply && !reply.includes("Maaf ya kak")) ? reply.trim() : instruction;
+        const messages = [{ role: "user", content: prompt }];
+
+        const reply = await callOpenRouter(messages);
+        return reply ? reply.trim() : instruction;
     } catch (error) {
         return instruction;
     }

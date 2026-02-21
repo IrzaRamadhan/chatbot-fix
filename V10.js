@@ -32,6 +32,13 @@ module.exports = client = async (client, m, chatUpdate, store) => {
     );
     m.body = body; // Attach parsed body to message object for plugins
 
+    // --- Anti-Spam / Anti-Judol Filter ---
+    const blacklist = require('./System/lib/blacklist');
+    if (blacklist.isSpam(body)) {
+      console.log(`[DEBUG] Ignored Spam Message from ${m.sender}: ${body.substring(0, 30)}...`);
+      return;
+    }
+
     const sender = m.key.fromMe ? client.user.id.split(":")[0] + "@s.whatsapp.net" ||
       client.user.id : m.key.participant || m.key.remoteJid;
 
@@ -364,13 +371,15 @@ module.exports = client = async (client, m, chatUpdate, store) => {
 
 
     // Check for active session
-    // Allow users to force reset session with "halo"
-    const isGreeting = /^(halo|hi|helo|p|permisi|pagi|siang|sore|malam)/i.test(body);
-    if (command === 'halo' || command === 'order' || isGreeting) {
+    let userState = session.get(sender);
+
+    // Only reset session if it's an explicit order command or menu button
+    // AND NOT when user is in CS mode (to protect human operator conversation)
+    if ((command === 'order' || command === 'menu') && (!userState || userState.handler !== 'cs')) {
       session.delete(sender);
+      userState = null; // Re-sync local variable
     }
 
-    const userState = session.get(sender); // Use full JID to match session.add
     console.log(`[DEBUG] Session check for ${sender}:`, userState ? "FOUND" : "NONE");
     if (userState && !['generate', 'gen', 'halo', 'order', 'menu'].includes(command)) {
       const handlerPlugin = plugins.find(p => p.command.includes(userState.handler + '_start')); // trick to find plugin file? No, better use require
