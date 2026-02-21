@@ -1,4 +1,5 @@
 const express = require('express');
+require('dotenv').config({ override: true });
 const app = express();
 const http = require('http');
 const server = http.createServer(app);
@@ -82,8 +83,12 @@ app.post('/api/config', (req, res) => {
 
         // Write back to file
         const configContent = `const fs = require('fs')
+require('dotenv').config({ override: true });
 
 const config = ${JSON.stringify(currentConfig, null, 4).replace(/"([^"]+)":/g, '$1:')}
+
+// Force environment variable override
+config.geminiApiKey = process.env.GEMINI_API_KEY || config.geminiApiKey;
 
 module.exports = config;
 

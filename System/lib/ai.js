@@ -3,8 +3,22 @@ const config = require("../../settings/config");
 const fs = require("fs");
 const path = require("path");
 
-// Initialize Gemini
-const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
+// Helper to get fresh AI instance (prevents stale key issues)
+let aiInstance = null;
+let lastUsedKey = null;
+
+function getAi() {
+    const freshConfig = require("../../settings/config");
+    const currentKey = freshConfig.geminiApiKey;
+
+    if (!aiInstance || currentKey !== lastUsedKey) {
+        if (currentKey) {
+            aiInstance = new GoogleGenAI(currentKey);
+            lastUsedKey = currentKey;
+        }
+    }
+    return aiInstance;
+}
 
 // In-memory chat history per user (max 10 messages)
 const chatHistories = {};
@@ -129,17 +143,23 @@ async function chatReply(userJid, userMessage, pushname, products = []) {
             parts: [{ text: userMessage }]
         });
 
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+        const genAi = getAi();
+        if (!genAi) return null;
+
+        const model = genAi.getGenerativeModel({
+            model: "gemini-1.5-flash",
+            systemInstruction: systemPrompt,
+        });
+
+        const response = await model.generateContent({
             contents: contents,
-            config: {
-                systemInstruction: systemPrompt,
+            generationConfig: {
                 maxOutputTokens: 200,
                 temperature: 0.7,
             }
         });
 
-        const reply = response.text?.trim();
+        const reply = response.response.text().trim();
 
         if (reply && reply.length > 0) {
             // Save to history
@@ -184,16 +204,22 @@ async function generateFollowUp(instruction, pushname = "Kak") {
 "${instruction}"
 Pesan harus singkat (1-2 kalimat), natural, ramah, pakai bahasa Indonesia santai. Gunakan 1-2 emoji. Jangan pakai format list.`;
 
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
+        const genAi = getAi();
+        if (!genAi) return instruction;
+
+        const model = genAi.getGenerativeModel({
+            model: "gemini-1.5-flash",
+        });
+
+        const response = await model.generateContent({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: {
                 maxOutputTokens: 100,
                 temperature: 0.8,
             }
         });
 
-        const text = response.text?.trim();
+        const text = response.response.text().trim();
         if (text && text.length > 5) return text;
         return instruction;
     } catch (error) {

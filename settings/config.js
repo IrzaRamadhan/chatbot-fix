@@ -1,6 +1,8 @@
 const fs = require('fs')
 
-require('dotenv').config();
+require('dotenv').config({ override: true });
+
+console.log(`[DEBUG] Gemini API Key loaded: ${process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.substring(0, 10) + '...' : 'NOT FOUND'}`);
 
 const config = {
     owner: "6287728892890",

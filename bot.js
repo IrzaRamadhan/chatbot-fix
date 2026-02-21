@@ -1,5 +1,6 @@
 console.clear();
 console.log('starting...');
+require('dotenv').config({ override: true });
 const config = () => require('./settings/config');
 process.on("uncaughtException", console.error);
 

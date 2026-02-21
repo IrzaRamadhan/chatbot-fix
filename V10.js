@@ -365,7 +365,8 @@ module.exports = client = async (client, m, chatUpdate, store) => {
 
     // Check for active session
     // Allow users to force reset session with "halo"
-    if (command === 'halo' || command === 'order') {
+    const isGreeting = /^(halo|hi|helo|p|permisi|pagi|siang|sore|malam)/i.test(body);
+    if (command === 'halo' || command === 'order' || isGreeting) {
       session.delete(sender);
     }
 
