@@ -415,6 +415,8 @@ module.exports = client = async (client, m, chatUpdate, store) => {
     const csCheck = session.get(sender);
     if (!isGroup && !isCmd && !m.key.fromMe && body && body.trim().length > 0 && config.aiEnabled && (!csCheck || csCheck.handler !== 'cs')) {
       try {
+        const aiPath = require.resolve('./System/lib/ai');
+        delete require.cache[aiPath];
         const ai = require('./System/lib/ai');
         const supabase = require('./System/lib/supabase');
 

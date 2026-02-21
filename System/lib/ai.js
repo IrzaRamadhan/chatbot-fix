@@ -1,231 +1,156 @@
-const { GoogleGenAI } = require("@google/genai");
+const axios = require("axios");
 const config = require("../../settings/config");
 const fs = require("fs");
 const path = require("path");
 
-// Helper to get fresh AI instance (prevents stale key issues)
-let aiInstance = null;
-let lastUsedKey = null;
+require('dotenv').config({ override: true });
 
-function getAi() {
-    const freshConfig = require("../../settings/config");
-    const currentKey = freshConfig.geminiApiKey;
+console.log("[DEBUG] AI Library (ai.js) reloaded - Using Ultra-Robust Direct API Mode.");
 
-    if (!aiInstance || currentKey !== lastUsedKey) {
-        if (currentKey) {
-            aiInstance = new GoogleGenAI(currentKey);
-            lastUsedKey = currentKey;
-        }
-    }
-    return aiInstance;
-}
-
-// In-memory chat history per user (max 10 messages)
 const chatHistories = {};
 const MAX_HISTORY = 10;
 
-// Load store info for context
+// PREFERRED MODELS Based on user's key availability
+const PREFERRED_MODELS = [
+    "gemini-2.0-flash-lite-001",
+    "gemini-2.0-flash",
+    "gemini-flash-latest",
+    "gemini-1.5-flash"
+];
+
 function getStoreInfo() {
     try {
-        const storePath = path.join(__dirname, "database", "store.json");
-        return JSON.parse(fs.readFileSync(storePath, "utf8"));
+        const storePath = path.join(__dirname, "..", "..", "database", "store.json");
+        if (fs.existsSync(storePath)) return JSON.parse(fs.readFileSync(storePath, "utf8"));
+        return { name: "Amanin Guys", phone: "-", address: "-" };
     } catch (e) {
         return { name: "Amanin Guys", phone: "-", address: "-" };
     }
 }
 
-// Build system prompt with store & product context
 function buildSystemPrompt(products = []) {
     const store = getStoreInfo();
     const productList = products.length > 0
         ? products.map(p => `- ${p.NameProd}: Rp ${parseInt(p.PriceProd).toLocaleString('id-ID')} (Stok: ${p.StockProd})`).join("\n")
         : "- Belum ada produk";
 
-    return `Kamu adalah asisten customer service WhatsApp untuk toko "${store.name}".
-
-INFO TOKO:
-- Nama: ${store.name}
-- Alamat: ${store.address}
-- Telepon: ${store.phone}
-- Kontak: ${store.contact_name}
-
+    return `Kamu adalah asisten CS untuk toko "${store.name}".
 DAFTAR PRODUK:
 ${productList}
-
-ATURAN:
-1. Jawab dalam Bahasa Indonesia yang santai, ramah, dan natural (seperti chat WA biasa).
-2. Gunakan emoji 1-2 saja.
-3. Jawaban HARUS sangat singkat, MAKSIMAL 1 kalimat pendek (di bawah 80 karakter). JANGAN PERNAH lebih dari 1 kalimat.
-4. Jika customer bertanya soal order/beli, arahkan ketik ".order" untuk mulai pesan.
-5. Jika customer bertanya soal alamat toko, jawab dari data di atas.
-6. Jika customer bertanya soal ongkir, bilang bisa dicek saat order.
-7. Jangan pernah menyebut bahwa kamu AI, robot, atau asisten virtual. Kamu adalah CS toko.
-8. Jangan membuat informasi produk yang tidak ada di daftar.
-9. Jika tidak tahu jawabannya, bilang "wah maaf kak, untuk info lebih lanjut bisa hubungi admin langsung ya".`;
+ATURAN: Jawab santai, ramah, max 1 kalimat pendek. Jika order arahkan ketik .order. Jangan sebut AI.`;
 }
 
 /**
- * Generate a greeting message for the .order command
- * @param {string} pushname - User's WhatsApp name
- * @param {Array} products - Product list from Supabase
- * @returns {string} AI-generated greeting text
+ * Common function to call Gemini API directly with Model Fallback
  */
-async function generateGreeting(pushname, products = []) {
-    if (!config.aiEnabled || !config.geminiApiKey) {
-        return `Halo kak ${pushname}! 👋\nSilakan pilih produk kami di bawah ini ya:`;
-    }
+async function callGemini(contents, systemInstruction = "") {
+    const apiKey = process.env.GEMINI_API_KEY || config.geminiApiKey;
+    if (!apiKey) return null;
 
-    try {
-        const prompt = `Buatkan sapaan singkat (1-2 kalimat) untuk customer bernama "${pushname}" yang baru buka list produk toko.
-Sebutkan nama 1-2 produk unggulan dari daftar ini untuk menarik minat.
-Akhiri dengan ajakan untuk pilih produk di bawah.
-Jangan pakai format list atau bullet point. Cukup teks biasa.`;
+    let lastError = null;
 
-        const systemPrompt = buildSystemPrompt(products);
+    for (const modelName of PREFERRED_MODELS) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-                systemInstruction: systemPrompt,
-                maxOutputTokens: 150,
-                temperature: 0.8,
+        try {
+            const payload = {
+                contents: contents,
+                generationConfig: {
+                    maxOutputTokens: 200,
+                    temperature: 0.7,
+                }
+            };
+
+            if (systemInstruction) {
+                payload.systemInstruction = {
+                    parts: [{ text: systemInstruction }]
+                };
             }
-        });
 
-        const text = response.text?.trim();
-        if (text && text.length > 10) return text;
-
-        return `Halo kak ${pushname}! 👋\nSilakan pilih produk kami di bawah ini ya:`;
-    } catch (error) {
-        console.error("AI Greeting Error:", error.message);
-        return `Halo kak ${pushname}! 👋\nSilakan pilih produk kami di bawah ini ya:`;
-    }
-}
-
-/**
- * Chat reply for free-text messages (non-command)
- * @param {string} userJid - User's JID for history tracking
- * @param {string} userMessage - User's message text
- * @param {string} pushname - User's WhatsApp name
- * @param {Array} products - Product list from Supabase
- * @returns {string} AI response
- */
-async function chatReply(userJid, userMessage, pushname, products = []) {
-    if (!config.aiEnabled || !config.geminiApiKey) {
-        return null; // Disabled, let it fall through
-    }
-
-    try {
-        // Get or create chat history
-        if (!chatHistories[userJid]) {
-            chatHistories[userJid] = [];
-        }
-        const history = chatHistories[userJid];
-
-        // Build conversation context
-        const systemPrompt = buildSystemPrompt(products);
-
-        // Build contents with history
-        const contents = [];
-
-        // Add history
-        for (const msg of history) {
-            contents.push({
-                role: msg.role,
-                parts: [{ text: msg.text }]
+            const response = await axios.post(url, payload, {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 10000
             });
-        }
 
-        // Add current message
-        contents.push({
-            role: "user",
-            parts: [{ text: userMessage }]
-        });
-
-        const genAi = getAi();
-        if (!genAi) return null;
-
-        const model = genAi.getGenerativeModel({
-            model: "gemini-1.5-flash",
-            systemInstruction: systemPrompt,
-        });
-
-        const response = await model.generateContent({
-            contents: contents,
-            generationConfig: {
-                maxOutputTokens: 200,
-                temperature: 0.7,
+            if (response.data && response.data.candidates && response.data.candidates[0].content) {
+                return response.data.candidates[0].content.parts[0].text;
             }
-        });
+        } catch (error) {
+            lastError = error;
+            const status = error.response?.status;
+            const errorMsg = error.response?.data?.error?.message || "";
 
-        const reply = response.response.text().trim();
+            if (status === 404) {
+                console.log(`[DEBUG] Model ${modelName} not found, trying next...`);
+                continue;
+            }
 
-        if (reply && reply.length > 0) {
-            // Save to history
+            if (status === 429 || errorMsg.includes("quota")) {
+                console.error(`[DEBUG] Quota Exceeded for ${modelName}.`);
+                // If it's a quota issue for the whole tier, continuing might not help, 
+                // but let's try one more model just in case.
+                continue;
+            }
+
+            console.error(`[DEBUG] Error with model ${modelName}:`, errorMsg || error.message);
+        }
+    }
+
+    // If we reach here, all models failed. 
+    // If the last error was quota, return a special message.
+    if (lastError?.response?.status === 429 || lastError?.response?.data?.error?.message?.includes("quota")) {
+        return "Maaf ya kak, saat ini aku sedang menerima banyak tamu. Coba lagi sebentar lagi ya! 🙏";
+    }
+
+    return null;
+}
+
+async function chatReply(userJid, userMessage, pushname, products = []) {
+    if (!config.aiEnabled) return null;
+
+    try {
+        if (!chatHistories[userJid]) chatHistories[userJid] = [];
+        const history = chatHistories[userJid];
+        const systemPrompt = buildSystemPrompt(products);
+
+        const contents = [];
+        for (const msg of history) {
+            contents.push({ role: msg.role === 'user' ? 'user' : 'model', parts: [{ text: msg.text }] });
+        }
+        contents.push({ role: "user", parts: [{ text: userMessage }] });
+
+        const reply = await callGemini(contents, systemPrompt);
+
+        if (reply) {
+            if (reply.includes("Maaf ya kak")) return reply; // Don't save quota errors to history
+
             history.push({ role: "user", text: userMessage });
             history.push({ role: "model", text: reply });
-
-            // Trim history if too long
-            while (history.length > MAX_HISTORY * 2) {
-                history.shift();
-            }
-
-            return reply;
+            while (history.length > MAX_HISTORY * 2) history.shift();
+            return reply.trim();
         }
-
         return null;
     } catch (error) {
-        console.error("AI Chat Error:", error.message);
+        console.error("AI chatReply Error:", error.message);
         return null;
     }
 }
 
-/**
- * Clear chat history for a user
- */
-function clearHistory(userJid) {
-    delete chatHistories[userJid];
-}
-
-/**
- * Generate a follow-up message based on admin instruction
- * @param {string} instruction - Admin-defined instruction from followup_config
- * @param {string} pushname - Customer's WhatsApp name
- * @returns {string} AI-generated follow-up text
- */
 async function generateFollowUp(instruction, pushname = "Kak") {
-    if (!config.aiEnabled || !config.geminiApiKey) {
-        return instruction; // Fallback to raw instruction
-    }
-
+    if (!config.aiEnabled) return instruction;
     try {
-        const prompt = `Buatkan pesan follow-up WhatsApp untuk customer bernama "${pushname}" berdasarkan instruksi berikut:
-"${instruction}"
-Pesan harus singkat (1-2 kalimat), natural, ramah, pakai bahasa Indonesia santai. Gunakan 1-2 emoji. Jangan pakai format list.`;
-
-        const genAi = getAi();
-        if (!genAi) return instruction;
-
-        const model = genAi.getGenerativeModel({
-            model: "gemini-1.5-flash",
-        });
-
-        const response = await model.generateContent({
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            generationConfig: {
-                maxOutputTokens: 100,
-                temperature: 0.8,
-            }
-        });
-
-        const text = response.response.text().trim();
-        if (text && text.length > 5) return text;
-        return instruction;
+        const prompt = `Buatkan pesan follow-up WA singkat (1 kalimat) untuk customer "${pushname}" berdasarkan instruksi: "${instruction}". Pakai bahasa Indonesia ramah.`;
+        const contents = [{ role: "user", parts: [{ text: prompt }] }];
+        const reply = await callGemini(contents);
+        return (reply && !reply.includes("Maaf ya kak")) ? reply.trim() : instruction;
     } catch (error) {
-        console.error("AI FollowUp Error:", error.message);
         return instruction;
     }
 }
 
-module.exports = { generateGreeting, chatReply, clearHistory, generateFollowUp };
+module.exports = {
+    chatReply,
+    clearHistory: (jid) => delete chatHistories[jid],
+    generateFollowUp,
+    generateGreeting: async (n) => `Halo kak ${n}! Ada yang bisa dibantu? Ketik .order untuk lihat produk.`
+};

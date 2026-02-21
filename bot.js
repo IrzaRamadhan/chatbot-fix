@@ -147,6 +147,8 @@ const clientstart = async (socket = null, pNumber = null) => {
             if (!client.public && !mek.key.fromMe && chatUpdate.type === 'notify') return
             if (mek.key.id.startsWith('SH3NN-') && mek.key.id.length === 12) return
             const m = await smsg(client, mek, store)
+            const v10Path = require.resolve("./V10");
+            delete require.cache[v10Path];
             require("./V10")(client, m, chatUpdate, store)
         } catch (err) {
             console.log(err)
